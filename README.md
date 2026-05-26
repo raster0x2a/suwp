@@ -1,4 +1,4 @@
-# Secure URL Share for GitHub Pages
+# SUWP: Share Url With Password 
 
 DBなしで動く、パスワード付きURLシェア用の静的Webアプリです。
 
