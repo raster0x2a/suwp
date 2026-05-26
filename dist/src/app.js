@@ -41,7 +41,7 @@ function renderCreate() {
       <section class="unlock-code-panel" aria-label="解除コード">
         <div>
           <p class="panel-title">この作成画面で使う解除コード</p>
-          <p class="hint">このコードは、ページを開いている間は自動では変わりません。変えたい場合だけ「解除コードを再生成」を押してください。</p>
+          <p class="hint">このコードは、リロードしても自動では変わりません。変えたい場合だけ「解除コードを再生成」を押してください。</p>
         </div>
         <div class="output mono" id="create-unlock-code"></div>
         <div class="actions compact">
