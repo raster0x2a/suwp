@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   createEncryptedCapsule,
   decodeCapsuleHash,
+  decryptCapsuleWithCandidateUnlockCodes,
   decryptCapsuleWithKey,
   decryptCapsuleWithUnlockCode,
   encodeCapsuleHash,
@@ -46,6 +47,24 @@ test('capsule can be encoded into and decoded from URL hash', async () => {
 test('capsule ciphertext does not contain the plaintext URL', async () => {
   const { capsule } = await createEncryptedCapsule({ url: 'https://example.com/super-secret' });
   assert.equal(JSON.stringify(capsule).includes('super-secret'), false);
+});
+
+
+
+test('capsule can be decrypted by trying all locally saved unlock codes', async () => {
+  const correctCode = 'BBBBB-BBBBB-BBBBB-BBBBB-BBBBB-BBBBB';
+  const { capsule } = await createEncryptedCapsule({
+    url: 'https://example.com/team-link',
+    unlockCode: correctCode,
+  });
+
+  const result = await decryptCapsuleWithCandidateUnlockCodes(capsule, [
+    { unlockCode: 'AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA' },
+    { unlockCode: correctCode },
+  ]);
+
+  assert.equal(result.payload.url, 'https://example.com/team-link');
+  assert.equal(result.unlockCode, correctCode);
 });
 
 test('wrong unlock code cannot decrypt the capsule', async () => {

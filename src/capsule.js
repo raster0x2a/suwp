@@ -53,6 +53,23 @@ export async function decryptCapsuleWithUnlockCode(capsule, unlockCode) {
   return { payload, key };
 }
 
+
+export async function decryptCapsuleWithCandidateUnlockCodes(capsule, candidates) {
+  assertCapsuleV1(capsule);
+  let lastError = null;
+  for (const candidate of candidates ?? []) {
+    const unlockCode = typeof candidate === 'string' ? candidate : candidate?.unlockCode;
+    if (!unlockCode) continue;
+    try {
+      const result = await decryptCapsuleWithUnlockCode(capsule, unlockCode);
+      return { ...result, unlockCode, candidate };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw new Error(lastError ? '保存済みの解除コードでは復号できません' : '保存済みの解除コードがありません');
+}
+
 export async function decryptCapsuleWithKey(capsule, key) {
   assertCapsuleV1(capsule);
   const iv = base64urlToBytes(capsule.iv);

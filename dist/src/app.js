@@ -1,16 +1,17 @@
 import {
   createEncryptedCapsule,
   decodeCapsuleHash,
+  decryptCapsuleWithCandidateUnlockCodes,
   decryptCapsuleWithKey,
   decryptCapsuleWithUnlockCode,
   makeShareUrl,
 } from './capsule.js';
 import { IndexedDbKeyStore } from './key-store.js';
-import { createUnlockCodeSession } from './create-session.js';
+import { createDefaultUnlockCodeManager } from './default-unlock-code.js';
 
 const app = document.querySelector('#app');
-const keyStore = new IndexedDbKeyStore();
-const createSession = createUnlockCodeSession();
+const credentialStore = new IndexedDbKeyStore();
+const unlockCodeManager = createDefaultUnlockCodeManager({ store: credentialStore });
 
 window.addEventListener('hashchange', render);
 render();
@@ -21,13 +22,24 @@ async function render() {
     await renderOpen(hash);
     return;
   }
-  renderCreate();
+  await renderCreate();
 }
 
-function renderCreate() {
+async function renderCreate() {
+  app.innerHTML = `<h2>共有URLを作成</h2><p class="status">解除コードを読み込んでいます...</p>`;
+
+  try {
+    await unlockCodeManager.initialize();
+  } catch (error) {
+    app.innerHTML = `<h2>共有URLを作成できません</h2><p class="error">解除コードの準備に失敗しました。${escapeHtml(error.message)}</p>`;
+    return;
+  }
+
+  const savedCodes = await safeListUnlockCodes();
+
   app.innerHTML = `
     <h2>共有URLを作成</h2>
-    <p class="status">転送先URLを圧縮・暗号化して、URLのhash部分に埋め込みます。解除コードは自動生成されます。</p>
+    <p class="status">転送先URLを圧縮・暗号化して、URLのhash部分に埋め込みます。既定の解除コードは、意図的に変更しない限り使い回されます。</p>
     <form id="create-form" class="grid">
       <label>
         転送先URL
@@ -40,10 +52,11 @@ function renderCreate() {
       </label>
       <section class="unlock-code-panel" aria-label="解除コード">
         <div>
-          <p class="panel-title">この作成画面で使う解除コード</p>
-          <p class="hint">このコードは、リロードしても自動では変わりません。変えたい場合だけ「解除コードを再生成」を押してください。</p>
+          <p class="panel-title">既定の解除コード</p>
+          <p class="hint">仲間内で共有する固定コードです。URLやラベルを変えても、リロードしても、この端末では同じコードを使います。変えたい場合だけ「解除コードを再生成」を押してください。</p>
         </div>
         <div class="output mono" id="create-unlock-code"></div>
+        <p class="hint" id="saved-code-count">保存済み解除コード: ${savedCodes.length}個。共有URLを開くときは、保存済みコードをすべて試します。</p>
         <div class="actions compact">
           <button type="button" class="secondary" id="regenerate-unlock-code">解除コードを再生成</button>
         </div>
@@ -67,12 +80,26 @@ function renderCreate() {
   `;
 
   updateCreateUnlockCodeDisplay();
-  document.querySelector('#regenerate-unlock-code').addEventListener('click', () => {
-    createSession.regenerateUnlockCode();
-    updateCreateUnlockCodeDisplay();
-    const result = document.querySelector('#result');
-    if (result) {
-      result.innerHTML = '<p class="status">解除コードを再生成しました。次に作る共有URLから新しいコードを使います。</p>';
+  document.querySelector('#regenerate-unlock-code').addEventListener('click', async () => {
+    const button = document.querySelector('#regenerate-unlock-code');
+    button.disabled = true;
+    try {
+      await unlockCodeManager.regenerateUnlockCode();
+      updateCreateUnlockCodeDisplay();
+      const result = document.querySelector('#result');
+      if (result) {
+        result.innerHTML = '<p class="status">解除コードを再生成しました。次に作る共有URLから新しい既定コードを使います。</p>';
+      }
+      const savedCodeCount = document.querySelector('#saved-code-count');
+      const updatedCodes = await safeListUnlockCodes();
+      if (savedCodeCount) {
+        savedCodeCount.textContent = `保存済み解除コード: ${updatedCodes.length}個。共有URLを開くときは、保存済みコードをすべて試します。`;
+      }
+    } catch (error) {
+      const result = document.querySelector('#result');
+      if (result) result.innerHTML = `<p class="error">解除コードの再生成に失敗しました。${escapeHtml(error.message)}</p>`;
+    } finally {
+      button.disabled = false;
     }
   });
   document.querySelector('#create-form').addEventListener('submit', handleCreateSubmit);
@@ -80,7 +107,7 @@ function renderCreate() {
 
 function updateCreateUnlockCodeDisplay() {
   const output = document.querySelector('#create-unlock-code');
-  if (output) output.textContent = createSession.getUnlockCode();
+  if (output) output.textContent = unlockCodeManager.getUnlockCode();
 }
 
 async function handleCreateSubmit(event) {
@@ -96,7 +123,7 @@ async function handleCreateSubmit(event) {
     const data = new FormData(form);
     const expiresAtRaw = data.get('expiresAt');
     const expiresAt = expiresAtRaw ? new Date(expiresAtRaw).toISOString() : undefined;
-    const unlockCode = createSession.getUnlockCode();
+    const unlockCode = unlockCodeManager.getUnlockCode();
     const { capsule, key, payload } = await createEncryptedCapsule({
       url: data.get('url'),
       label: data.get('label'),
@@ -105,12 +132,13 @@ async function handleCreateSubmit(event) {
       unlockCode,
     });
 
-    await keyStore.set(capsule.kid, key);
+    await credentialStore.set(capsule.kid, key);
+    await credentialStore.saveUnlockCode(unlockCode, { makeDefault: true });
     const shareUrl = makeShareUrl(window.location.href, capsule);
 
     result.innerHTML = `
       <div class="result">
-        <p class="ok">生成しました。この作成画面に表示中の解除コードで暗号化し、作成者のこのブラウザには復号鍵をIndexedDBへ保存済みです。</p>
+        <p class="ok">生成しました。既定の解除コードで暗号化し、このブラウザには解除コードと復号鍵をIndexedDBへ保存済みです。</p>
         <label>
           共有URL
           <div class="output mono" id="share-url"></div>
@@ -152,7 +180,7 @@ async function handleCreateSubmit(event) {
 }
 
 async function renderOpen(hash) {
-  app.innerHTML = `<h2>共有URLを開いています</h2><p class="status">IndexedDBに保存済みの鍵を確認しています...</p>`;
+  app.innerHTML = `<h2>共有URLを開いています</h2><p class="status">IndexedDBに保存済みの鍵と解除コードを確認しています...</p>`;
 
   let capsule;
   try {
@@ -163,14 +191,27 @@ async function renderOpen(hash) {
   }
 
   try {
-    const savedKey = await keyStore.get(capsule.kid);
+    const savedKey = await credentialStore.get(capsule.kid);
     if (savedKey) {
       const payload = await decryptCapsuleWithKey(capsule, savedKey);
       redirectTo(payload);
       return;
     }
   } catch {
-    await keyStore.delete(capsule.kid).catch(() => {});
+    await credentialStore.delete(capsule.kid).catch(() => {});
+  }
+
+  try {
+    const savedCodes = await credentialStore.listUnlockCodes();
+    if (savedCodes.length > 0) {
+      app.innerHTML = `<h2>共有URLを開いています</h2><p class="status">保存済みの解除コード ${savedCodes.length}個を順番に試しています...</p>`;
+      const { payload, key } = await decryptCapsuleWithCandidateUnlockCodes(capsule, savedCodes);
+      await credentialStore.set(capsule.kid, key);
+      redirectTo(payload);
+      return;
+    }
+  } catch {
+    // Saved codes did not match this capsule. Fall back to manual input.
   }
 
   renderUnlockForm(capsule);
@@ -179,11 +220,15 @@ async function renderOpen(hash) {
 function renderUnlockForm(capsule) {
   app.innerHTML = `
     <h2>解除コードを入力</h2>
-    <p class="status">この端末に保存済みの鍵がありません。共有された解除コードを入力してください。成功すると鍵をIndexedDBに保存し、次回から自動で開きます。</p>
+    <p class="status">この端末の保存済みコードでは開けませんでした。共有された解除コードを入力してください。成功するとコードをIndexedDBに保存し、次回から保存済みコードとして自動で試します。</p>
     <form id="unlock-form" class="grid">
       <label>
         解除コード
         <input name="unlockCode" autocomplete="off" spellcheck="false" class="mono" placeholder="ABCDE-FGHJK-MNPQR-STUVW-XYZ23-45678" required />
+      </label>
+      <label class="checkbox">
+        <input name="makeDefault" type="checkbox" checked />
+        <span>この解除コードを今後の作成でも使う <small>仲間内の固定コードとして使う場合はオンのままにしてください。</small></span>
       </label>
       <div class="actions">
         <button type="submit">復号して開く</button>
@@ -202,9 +247,13 @@ function renderUnlockForm(capsule) {
     result.innerHTML = `<p class="status">復号中です...</p>`;
 
     try {
-      const unlockCode = new FormData(form).get('unlockCode');
+      const formData = new FormData(form);
+      const unlockCode = formData.get('unlockCode');
+      const makeDefault = formData.get('makeDefault') === 'on';
       const { payload, key } = await decryptCapsuleWithUnlockCode(capsule, unlockCode);
-      await keyStore.set(capsule.kid, key);
+      await credentialStore.set(capsule.kid, key);
+      await unlockCodeManager.initialize().catch(() => {});
+      await unlockCodeManager.rememberUnlockCode(unlockCode, { makeDefault });
       redirectTo(payload);
     } catch (error) {
       result.innerHTML = `<p class="error">解除コードが違うか、共有URLが壊れています。${escapeHtml(error.message)}</p>`;
@@ -223,6 +272,14 @@ function redirectTo(payload) {
     </div>
   `;
   window.location.replace(payload.url);
+}
+
+async function safeListUnlockCodes() {
+  try {
+    return await credentialStore.listUnlockCodes();
+  } catch {
+    return [];
+  }
 }
 
 function escapeHtml(value) {
