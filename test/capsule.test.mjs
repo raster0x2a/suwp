@@ -20,6 +20,19 @@ test('capsule round-trips with the generated unlock code', async () => {
   assert.equal(decrypted.payload.label, 'private link');
 });
 
+
+
+test('createEncryptedCapsule uses the supplied unlock code instead of generating a new one', async () => {
+  const unlockCode = 'ABCDE-FGHJK-MNPQR-STUVW-XYZ23-45678';
+  const { capsule, unlockCode: returnedUnlockCode } = await createEncryptedCapsule({
+    url: 'https://example.com/stable-code',
+    unlockCode,
+  });
+
+  assert.equal(returnedUnlockCode, unlockCode);
+  const decrypted = await decryptCapsuleWithUnlockCode(capsule, unlockCode);
+  assert.equal(decrypted.payload.url, 'https://example.com/stable-code');
+});
 test('capsule can be encoded into and decoded from URL hash', async () => {
   const { capsule } = await createEncryptedCapsule({ url: 'https://example.com/' });
   const hash = encodeCapsuleHash(capsule);
