@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; base-uri 'none'; object-src 'none'; script-src 'self'; style-src 'self'; form-action 'none'; connect-src 'self'; img-src 'self' data:; upgrade-insecure-requests"
+    />
+    <title>Secure URL Share</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <noscript>このアプリは暗号化と復号にJavaScriptを使います。JavaScriptを有効にしてください。</noscript>
+    <main class="shell">
+      <header class="hero">
+        <p class="eyebrow">DBなし / GitHub Pages対応</p>
+        <h1>パスワード付きURLシェア</h1>
+        <p>
+          転送先URLをブラウザ内で圧縮・暗号化し、共有URLの <code>#hash</code> に入れます。
+          解除コードを知っている端末だけが復号してリダイレクトできます。
+        </p>
+      </header>
+
+      <section id="app" class="card" aria-live="polite"></section>
+
+      <footer class="footer">
+        <p>
+          共有URLと解除コードは別経路で送ってください。DBを使わないため、配布済みURLの強制失効はできません。
+        </p>
+      </footer>
+    </main>
+
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,14 @@
+{
+  "name": "secure-url-share-pages",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "build": "node scripts/build.mjs",
+    "serve": "npx --yes http-server . -c-1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
